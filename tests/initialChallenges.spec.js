@@ -1,98 +1,175 @@
 const { readFileSync } = require('fs');
-const { Sequelize } = require('sequelize');
-const Importer = require('mysql-import');
+const Importer = require('./importer');
 
-describe('Desafios iniciais', () => {
+describe('Desafios de manipulação de tabelas', () => {
+  let importer;
   let sequelize;
 
-  beforeAll(async () => {
-    const importer = new Importer(
-      { user: process.env.MYSQL_USER, password: process.env.MYSQL_PASSWORD, host: process.env.HOSTNAME }
-    );
-
-    await importer.import('./northwind.sql');
-
-    importer.disconnect();
-
-    sequelize = new Sequelize(
-      `mysql://${process.env.MYSQL_USER}:${process.env.MYSQL_PASSWORD}@${process.env.HOSTNAME}:3306/northwind`
-    );
+  beforeAll(() => {
+    Importer((imp, seq) => {
+      importer = imp;
+      sequelize = seq;
+    });
   });
 
-  afterAll(async () => {
-    await sequelize.query('DROP DATABASE northwind;', { type: 'RAW' });
+  afterAll(() => {
     sequelize.close();
   });
 
-  describe('Exiba apenas os nomes do produtos na tabela `products`', () => {
-    it('Verifica o desafio1', async () => {
-      const challengeQuery = readFileSync('desafio1.sql', 'utf8').trim();
-      const expectedResult = require('./challengesResults/challengeResult1');
+  beforeEach(async () => {
+    await importer.import('./northwind.sql');
+    await sequelize.query('USE northwind;', { type: 'RAW' });
+    importer.disconnect();
+  });
 
-      expect(await sequelize.query(challengeQuery, { type: 'SELECT' })).toEqual(expectedResult);
+  afterEach(async () => await sequelize.query('DROP DATABASE northwind;', { type: 'RAW' }));
+
+  describe('Queries de inserção', () => {
+    const countOrderDetailsQuery = `SELECT COUNT(*) AS details_count FROM northwind.order_details
+      WHERE order_id = 69
+            AND product_id = 80
+            AND quantity = 15.0000
+            AND unit_price = 15.0000
+            AND discount = 0
+            AND status_id = 2
+            AND date_allocated IS NULL
+            AND purchase_order_id IS NULL
+            AND inventory_id = 129`;
+
+    const lastOrderDetailsIdsQuery = (limit = 1) =>
+      `SELECT id FROM northwind.order_details ORDER BY id DESC LIMIT ${limit};`;
+
+    describe('20 - Adicione ao `order_details` uma linha com os seguintes dados: `order_id`: 69, `product_id`: 80, `quantity`: 15.0000, `unit_price`: 15.0000, `discount`: 0, `status_id`: 2, `date_allocated`: NULL, `purchase_order_id`: NULL e `inventory_id`: 129. Obs.: o `id` deve ser incrementado automaticamente.', () => {
+      it('Verifica o desafio20', async () => {
+        const challengeQuery = readFileSync('desafio20.sql', 'utf8').trim();
+        const lastOrderDetailsId = (
+          await sequelize.query(lastOrderDetailsIdsQuery(), { type: 'SELECT' })
+        )[0].id;
+
+        expect(await sequelize.query(countOrderDetailsQuery, { type: 'SELECT' }))
+          .toEqual([{ details_count: 0 }]);
+
+        await sequelize.query(challengeQuery, { type: 'INSERT' });
+
+        expect(await sequelize.query(countOrderDetailsQuery, { type: 'SELECT' }))
+          .toEqual([{ details_count: 1 }]);
+
+        expect(await sequelize.query(lastOrderDetailsIdsQuery(), { type: 'SELECT' }))
+          .toEqual([{ id: lastOrderDetailsId + 1 }]);
+      });
+    });
+
+    describe('21 - Adicione, com um único `INSERT`, duas linhas ao `order_details` com os mesmos dados. Esses dados são novamente `order_id`: 69, `product_id`: 80, `quantity`: 15.0000, `unit_price`: 15.0000, `discount`: 0, `status_id`: 2, `date_allocated`: NULL, `purchase_order_id`: NULL e `inventory_id`: 129 (o `ìd` deve ser incrementado automaticamente).', () => {
+      it('Verifica o desafio21', async () => {
+        const challengeQuery = readFileSync('desafio21.sql', 'utf8').trim();
+        const lastOrderDetailsId = (
+          await sequelize.query(lastOrderDetailsIdsQuery(), { type: 'SELECT' })
+        )[0].id;
+
+        expect(await sequelize.query(countOrderDetailsQuery, { type: 'SELECT' }))
+          .toEqual([{ details_count: 0 }]);
+
+        await sequelize.query(challengeQuery, { type: 'INSERT' });
+
+        expect(await sequelize.query(countOrderDetailsQuery, { type: 'SELECT' }))
+          .toEqual([{ details_count: 2 }]);
+
+        expect(await sequelize.query(lastOrderDetailsIdsQuery(2), { type: 'SELECT' }))
+          .toEqual([{ id: lastOrderDetailsId + 2 }, { id: lastOrderDetailsId + 1 }]);
+      });
     });
   });
 
-  describe('Exiba os dados de todas as colunas da tabela `products`', () => {
-    it('Verifica o desafio2', async () => {
-      const challengeQuery = readFileSync('desafio2.sql', 'utf8').trim();
-      const expectedResult = require('./challengesResults/challengeResult2');
+  describe('Queries de atualização', () => {
+    const countOrderDetailsByDiscountQuery = (discount) =>
+      `SELECT COUNT(*) AS details_count FROM order_details WHERE discount = ${discount};`;
 
-      expect(await sequelize.query(challengeQuery, { type: 'SELECT' })).toEqual(expectedResult);
+    describe('22 - Atualize os dados de `discount` do `order_details` para 15.', () => {
+      it('Verifica o desafio22', async () => {
+        const challengeQuery = readFileSync('desafio22.sql', 'utf8').trim();
+
+        expect(await sequelize.query(countOrderDetailsByDiscountQuery(15), { type: 'SELECT' }))
+          .toEqual([{ details_count: 0 }]);
+
+        await sequelize.query(challengeQuery, { type: 'UPDATE' });
+
+        expect(await sequelize.query(countOrderDetailsByDiscountQuery(15), { type: 'SELECT' }))
+          .toEqual([{ details_count: 58 }]);
+      });
+    });
+
+    describe('23 - Atualize os dados de `discount` da tabela `order_details` para 30 cuja `unit_price` seja menor que 10.0000.', () => {
+      it('Verifica o desafio23', async () => {
+        const challengeQuery = readFileSync('desafio23.sql', 'utf8').trim();
+
+        expect(await sequelize.query(countOrderDetailsByDiscountQuery(30), { type: 'SELECT' }))
+          .toEqual([{ details_count: 0 }]);
+
+        await sequelize.query(challengeQuery, { type: 'UPDATE' });
+
+        expect(await sequelize.query(countOrderDetailsByDiscountQuery(30), { type: 'SELECT' }))
+          .toEqual([{ details_count: 17 }]);
+      });
+    });
+
+    describe('24 - Atualize os dados de `discount` da tabela `order_details` para 45 cuja `unit_price` seja maior que 10.0000 e o id seja um número entre 30 a 40.', () => {
+      it('Verifica o desafio24', async () => {
+        const challengeQuery = readFileSync('desafio24.sql', 'utf8').trim();
+
+        expect(await sequelize.query(countOrderDetailsByDiscountQuery(45), { type: 'SELECT' }))
+          .toEqual([{ details_count: 0 }]);
+
+        await sequelize.query(challengeQuery, { type: 'UPDATE' });
+
+        expect(await sequelize.query(countOrderDetailsByDiscountQuery(45), { type: 'SELECT' }))
+          .toEqual([{ details_count: 7 }]);
+      });
     });
   });
 
-  describe('Escreva uma query que exiba os valores da coluna que representa a primary key da tabela `products`', () => {
-    it('Verifica o desafio3', async () => {
-      const challengeQuery = readFileSync('desafio3.sql', 'utf8').trim();
-      const expectedResult = require('./challengesResults/challengeResult3');
+  describe('Queries de deleção', () => {
+    const countOrderDetailsQuery = 'SELECT COUNT(*) AS details_count FROM order_details;';
 
-      expect(await sequelize.query(challengeQuery, { type: 'SELECT' })).toEqual(expectedResult);
+    describe('25 - Delete todos os dados em que a `unit_price` da tabela `order_details` seja menor que 10.0000.', () => {
+      it('Verifica o desafio25', async () => {
+        const challengeQuery = readFileSync('desafio25.sql', 'utf8').trim();
+
+        expect(await sequelize.query(countOrderDetailsQuery, { type: 'SELECT' }))
+          .toEqual([{ details_count: 58 }]);
+
+        await sequelize.query(challengeQuery, { type: 'DELETE' });
+
+        expect(await sequelize.query(countOrderDetailsQuery, { type: 'SELECT' }))
+          .toEqual([{ details_count: 41 }]);
+      });
     });
-  });
 
-  describe('Conte quantos registros existem em `product_name` de `products`', () => {
-    it('Verifica o desafio4', async () => {
-      const challengeQuery = readFileSync('desafio4.sql', 'utf8').trim();
-      const expectedResult = require('./challengesResults/challengeResult4');
+    describe('26 - Delete todos os dados em que a `unit_price` da tabela `order_details` seja maior que 10.0000.', () => {
+      it('Verifica o desafio26', async () => {
+        const challengeQuery = readFileSync('desafio26.sql', 'utf8').trim();
 
-      expect(await sequelize.query(challengeQuery, { type: 'SELECT' })).toEqual(expectedResult);
+        expect(await sequelize.query(countOrderDetailsQuery, { type: 'SELECT' }))
+          .toEqual([{ details_count: 58 }]);
+
+        await sequelize.query(challengeQuery, { type: 'DELETE' });
+
+        expect(await sequelize.query(countOrderDetailsQuery, { type: 'SELECT' }))
+          .toEqual([{ details_count: 20 }]);
+      });
     });
-  });
 
-  describe('Monte uma query que exiba os dados da tabela `products` a partir do quarto registro até o décimo terceiro, incluindo tanto um quanto o outro', () => {
-    it('Verifica o desafio5', async () => {
-      const challengeQuery = readFileSync('desafio5.sql', 'utf8').trim();
-      const expectedResult = require('./challengesResults/challengeResult5');
+    describe('27 - Delete todos os dados da tabela `order_details`.', () => {
+      it('Verifica o desafio27', async () => {
+        const challengeQuery = readFileSync('desafio27.sql', 'utf8').trim();
 
-      expect(await sequelize.query(challengeQuery, { type: 'SELECT' })).toEqual(expectedResult);
-    });
-  });
+        expect(await sequelize.query(countOrderDetailsQuery, { type: 'SELECT' }))
+          .toEqual([{ details_count: 58 }]);
 
-  describe('Exiba os dados das colunas `product_name` e `id` da tabela `products` de maneira que os resultados estejam em ordem alfabética dos nomes', () => {
-    it('Verifica o desafio6', async () => {
-      const challengeQuery = readFileSync('desafio6.sql', 'utf8').trim();
-      const expectedResult = require('./challengesResults/challengeResult6');
+        await sequelize.query(challengeQuery, { type: 'DELETE' });
 
-      expect(await sequelize.query(challengeQuery, { type: 'SELECT' })).toEqual(expectedResult);
-    });
-  });
-
-  describe('Mostre apenas os ids dos 5 últimos registros da tabela `products` (a ordernação deve ser baseada na coluna `id`)', () => {
-    it('Verifica o desafio7', async () => {
-      const challengeQuery = readFileSync('desafio7.sql', 'utf8').trim();
-      const expectedResult = require('./challengesResults/challengeResult7');
-
-      expect(await sequelize.query(challengeQuery, { type: 'SELECT' })).toEqual(expectedResult);
-    });
-  });
-
-  describe('Faça uma consulta que retorne três colunas contendo os nomes `A`, `Trybe` e `eh` com os valores `5 + 6`, `"de"` e `2 + 8`, respectivamente', () => {
-    it('Verifica o desafio8', async () => {
-      const challengeQuery = readFileSync('desafio8.sql', 'utf8').trim();
-      const expectedResult = require('./challengesResults/challengeResult8');
-
-      expect(await sequelize.query(challengeQuery, { type: 'SELECT' })).toEqual(expectedResult);
+        expect(await sequelize.query(countOrderDetailsQuery, { type: 'SELECT' }))
+          .toEqual([{ details_count: 0 }]);
+      });
     });
   });
 });
